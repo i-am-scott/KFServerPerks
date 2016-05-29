@@ -45,6 +45,21 @@ namespace KFServerPerks
             }
         }
 
+        static string ConvertToSteamID32( string steamid64)
+        {
+            long sid;
+            string steamId = "";
+
+            if (long.TryParse(steamid64, out sid))
+            {
+                long accountid = sid - (sid >> 32 << 32);
+                int lastBit    = accountid % 2 == 0 ? 0 : 1;
+                steamId        = "STEAM_0:" + lastBit + ":" + (accountid >> 1).ToString();
+            }
+
+            return steamId;
+        }
+
         static void StartListener()
         {
             soc      = new UdpClient(new IPEndPoint(IPAddress.Any, Port));
@@ -58,9 +73,10 @@ namespace KFServerPerks
 
         static void OnMessageReceived(byte[] res )
         {
-            byte cmd    = res[0];
-            byte[] data = new ArraySegment<byte>( res, 1, res.Length - 1 ).ToArray();
-   
+            byte cmd       = res[0];
+            byte[] data    = new ArraySegment<byte>( res, 1, res.Length - 1 ).ToArray();
+            string encoded = System.Text.Encoding.ASCII.GetString(data);
+
             Console.WriteLine("Listening on {0}:{1}", endpoint.Address, endpoint.Port );
             Console.WriteLine("Received information: Type: {0} | Command: {1}", cmd, data.Length );
 
@@ -78,9 +94,9 @@ namespace KFServerPerks
 
                 if (((int)id == (int)cmd))
                 {
-                    Console.WriteLine("[{0}] {1}.", DateTime.Now, name);
+                    Console.WriteLine("[{0}] {1} {2}", DateTime.Now, name, encoded );
                     method.Invoke( null, ( new object[] {
-                        System.Text.Encoding.ASCII.GetString( data )
+                        encoded
                     }));
                     break;
                 }
@@ -96,7 +112,6 @@ namespace KFServerPerks
             broadcastmsg[0]     = (byte)((int)type);
             broadcastmsg        = broadcastmsg.Concat(msgarr).ToArray<byte>();
 
-            Console.WriteLine(broadcastmsg[0].ToString());
             soc.Send(broadcastmsg, broadcastmsg.Length, endpoint);
         }
 
@@ -111,21 +126,30 @@ namespace KFServerPerks
         {
             if (data == Password)
             {
-                // Add address to the whitelist.
                 SendMessage(ENetID.ID_PasswordCorrect);
                 return;
             }
             else
-            {
+            { 
                 SendMessage(ENetID.ID_ConnectionClosed);
                 return;
             }
         }
-
+     
         [ENetIDCommandType("KeepAlive", ENetID.ID_KeepAlive)]
         public static void KeepAlive( string data )
         {
             Console.WriteLine("Keep alive request.");
+        }
+
+        [ENetIDCommandType("NewPlayer", ENetID.ID_NewPlayer)]
+        public static void NewPlayer(string data)
+        {
+            string[] tbl     = data.Split(new char[] { '*' });
+            string steamid64 = ConvertToSteamID32( tbl[0] );
+            string name      = tbl[1];
+
+            Console.WriteLine( "Player received: {0} ({1})", name, steamid64 );
         }
 
         static void Main(string[] args)
@@ -144,4 +168,4 @@ namespace KFServerPerks
         }
 
     }
-}
+} 
