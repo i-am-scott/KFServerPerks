@@ -23,7 +23,7 @@ Simple overview of how it connects and sends data:
 
 From here whitelist the IP + Port to allow them to use the other commands.
 
-####KEEPALIVE:
+####KEEPALIVE ENetID.ID_KeepAlive(10):
 I'm not sure why this is even needed, maybe for Winsocs to work?
 [PSERVER] Send ENetID.ID_KeepAlive
 [KFSERVER] Respond ENetID.ID_KeepAlive
@@ -32,12 +32,20 @@ So, KF Server will keep responding to this instantly, probably best to keep send
 is required by the UE UdpLink class.
 
 ####RECEIVED ENetID.ID_NewPlayer(6)
-Signals that a new player is to be created.
+Signals that a new player is to be created or fetched.
 [steamid64]\*[steamname].
 
 ####SEND ENetID.ID_NewPlayer(6)
-Sends new player data. Not sure why this is needed. Maybe an unfinished feature or is sent to confirm that we got the new player request.
-Seems to return [playerindex]|[steamid64] where playerindex will be the id for this perk object. IE an AI key from the database.
+Send back the players playerindex and steamid64, if the player doesn't exist then send back a unique playerindex along with the steamid.
+the playerindex is the id that stats for this player will use.
+
+Seems to return [playerindex]|[steamid64] where playerindex will be the id for this perk object. IE an AI field from the database.
+
+####SEND ENetID.ID_NewPlayer(6)
+
+####RECEIVED ID_UpdatePlayer(9)
+Signals that a players stats need saving. This follows the Playerdata format with the char 10 appended.
+This is sent in chunks of 512chars with char 10 signifying the end of the stream.
 
 ####Playerdata Format
-[ID]|CurrentPerk:stat,stat[,...],modelId[,...customperks]
+[playerindex]|CurrentPerk:stat,stat[,...],modelId[,...customperks]
