@@ -10,13 +10,13 @@ namespace KFServerPerks.util
 
         public static void Log( string fileName, string text, bool print = true )
         {
-            string logtext  = $"[{DateTime.Now}] {text}\n";
+            string logtext  = $"[{DateTime.Now}] {text}";
             string filePath = logFolder + fileName;
 
             try
             {
                 Directory.CreateDirectory(logFolder);
-                File.AppendAllText(filePath, logtext );
+                File.AppendAllText(filePath, logtext + "\n" );
             }
             catch( Exception e )
             {

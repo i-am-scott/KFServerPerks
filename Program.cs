@@ -6,17 +6,20 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
 using KFServerPerks.util;
+using System.Collections.Generic;
 
 namespace KFServerPerks
 {
 
     class Program
     {
-        private static int Port = 5000;
+        private static int Port        = 6000;
         private static string Password = "nope";
 
-        private static UdpClient soc = null;
+        private static UdpClient  soc      = null;
         private static IPEndPoint endpoint = null;
+
+        private static List<string> connections;
 
         [AttributeUsage(System.AttributeTargets.Method)]
         public class ENetCommandType : Attribute
@@ -46,6 +49,19 @@ namespace KFServerPerks
             return steamId;
         }
 
+        static bool IsRegistered(IPEndPoint endpoint)
+        {
+            bool whitelisted = connections.Exists(element => element == endpoint.Address.ToString());
+
+            if ( !whitelisted)
+            {
+                Logging.Log($"UNAUTHORIZED CONNECTION MADE.");
+                SendMessage(endpoint, ENetID.ID_ConnectionClosed );
+            }
+
+            return whitelisted;
+        }
+
         static void StartListener()
         {
             soc = new UdpClient(new IPEndPoint(IPAddress.Any, Port));
@@ -59,100 +75,134 @@ namespace KFServerPerks
 
         static void OnMessageReceived(byte[] res)
         {
-            byte cmd = res[0];
-            byte[] data = new ArraySegment<byte>(res, 1, res.Length - 1).ToArray();
-            string encoded = System.Text.Encoding.ASCII.GetString(data);
+            ENetID cmd     = (ENetID)res[0];
+            byte[] data    = new ArraySegment<byte>(res, 1, res.Length - 1).ToArray();
+            string encoded = Encoding.ASCII.GetString(data);
 
-            Logging.Log($"Listening on {endpoint.Address}:{endpoint.Port}");
-            Logging.Log($"Received information: Type: {cmd} | Command: {data.Length}");
+            Logging.Log( $"[RECEIVED] {endpoint.Address}:{endpoint.Port} {cmd} {data.Length} bytes | {encoded}" );
 
             /* Attempt to map message type to method with the correct attribute. */
             MethodInfo[] methods = typeof(Program).GetMethods()
                          .Where(m => m.GetCustomAttributes(typeof(ENetCommandType), false).Length > 0)
                          .ToArray();
 
-            for (int I = 0; I < methods.Length; I++)
-            {
-                MethodInfo method = methods[I];
-                ENetCommandType attr = method.GetCustomAttribute<ENetCommandType>();
-                string name = attr.cmdType;
-                ENetID id = attr.cmdInt;
+            //if (cmd != ENetID.ID_HeresPassword && cmd != ENetID.ID_Open && cmd != ENetID.ID_KeepAlive);
+               // if (!IsRegistered(endpoint))
+               //     return;
 
-                if (((int)id == (int)cmd))
+            bool found = false;
+
+            try
+            {
+                for (int I = 0; I < methods.Length; I++)
                 {
-                    Logging.Log($"[{DateTime.Now}] {name} {encoded}");
-                    method.Invoke(null, (new object[] {
-                        encoded
-                    }));
-                    break;
+                    MethodInfo method = methods[I];
+                    ENetCommandType attr = method.GetCustomAttribute<ENetCommandType>();
+                    string name = attr.cmdType;
+                    ENetID id = attr.cmdInt;
+
+                    if (((int)id == (int)cmd))
+                    {
+                        method.Invoke(null, (new object[] {
+                            endpoint,
+                            encoded
+                        }));
+
+                        found = true;
+                        break;
+                    }
                 }
+            }catch( Exception e )
+            {
+                Logging.Log( e.Message, true);
             }
+
+            if (!found)
+                MessageReceived(endpoint, encoded);
         }
 
-        static void SendMessage(ENetID type, string message = "")
+        static void SendMessage( IPEndPoint endpoint, ENetID type, string message = "" )
         {
-            byte[] msgarr = System.Text.Encoding.ASCII.GetBytes(message);
-            byte[] broadcastmsg = new byte[msgarr.Length + 1];
+            byte[] msgarr       = Encoding.ASCII.GetBytes(message);
+            List<byte> dataList = new List<byte>(msgarr.Length + 1);
 
-            // >__>
-            broadcastmsg[0] = (byte)((int)type);
-            broadcastmsg = broadcastmsg.Concat(msgarr).ToArray<byte>();
+            dataList.Add(Convert.ToByte((int)type));
+            dataList.AddRange(msgarr);
 
-            soc.Send(broadcastmsg, broadcastmsg.Length, endpoint);
+            byte[] broadcastmsg = dataList.ToArray();
+
+            Logging.Log( $"[SENT] {endpoint.Address}:{endpoint.Port} {type} {msgarr.Length} bytes | {message}");
+
+            soc.Send(broadcastmsg, broadcastmsg.Length, endpoint );
+        }
+
+        static void MessageReceived(IPEndPoint endpoint, string text)
+        {
+
         }
 
         [ENetCommandType("ConnectionStart", ENetID.ID_Open)]
-        public static void ConnectionStart(string data)
+        public static void ConnectionStart(IPEndPoint endpoint, string data)
         {
-            SendMessage(ENetID.ID_RequestPassword);
+            SendMessage( endpoint, ENetID.ID_RequestPassword );
         }
 
         [ENetCommandType("CheckPassword", ENetID.ID_HeresPassword)]
-        public static void CheckPassword(string data)
+        public static void CheckPassword( IPEndPoint endpoint, string data)
         {
             if (data == Password)
             {
-                SendMessage(ENetID.ID_PasswordCorrect);
+                SendMessage( endpoint, ENetID.ID_PasswordCorrect );
+                connections.Add(endpoint.Address.ToString());
                 return;
             }
             else
             {
-                SendMessage(ENetID.ID_ConnectionClosed);
+                SendMessage( endpoint, ENetID.ID_ConnectionClosed );
                 return;
             }
         }
-
+ 
         [ENetCommandType("KeepAlive", ENetID.ID_KeepAlive)]
-        public static void KeepAlive(string data)
+        public static void KeepAlive( IPEndPoint endpoint, string data )
         {
             Logging.Log("Keep alive request.");
         }
 
         [ENetCommandType("NewPlayer", ENetID.ID_NewPlayer)]
-        public static void NewPlayer(string data)
+        public static void NewPlayer(IPEndPoint endpoint, string data)
         {
-            string[] tbl = data.Split(new char[] { '*' });
-            string steamid64 = ConvertToSteamID32(tbl[0]);
-            string name = tbl[1];
+            string[] tbl      = data.Split(new char[] { '*' });
+            string steamid64  = tbl[0];
+            string steamid32  = ConvertToSteamID32(steamid64);
+            string name       = tbl[1];
 
-            Logging.Log($"Player received: {name} ({steamid64})");
+            SendMessage(endpoint, ENetID.ID_NewPlayer, $"0|{steamid64}" );
+
+            // Requires you to send back the users data, if its new then return nothing.
+            SendMessage(endpoint, ENetID.ID_SendPlayerData, $"0|" );
+
+            Logging.Log($"Player received: {name} ({steamid32})");
         }
 
         [ENetCommandType("UpdatePlayer", ENetID.ID_UpdatePlayer)]
-        public static void UpdatePlayer(string data)
+        public static void UpdatePlayer( IPEndPoint endpoint, string data )
         {
             string[] dataArr = data.Split(new char[] { '|' });
             int playerId = int.Parse(dataArr[0]);
             string[] stats = dataArr[1].Split(new char[] { ',' });
 
             Stats playerstats = new Stats(playerId, stats);
-
         }
 
         static void Main(string[] args)
         {
-            Console.Title = "KillingFloor Perk Server 0.1";
+            Console.Title            = "KillingFloor Perk Server 0.1";
+            Console.ForegroundColor  = ConsoleColor.Gray;
+
             Logging.Log($"Listening on Port {Port} with Password '{Password}'.");
+
+            connections = new List<string>();
 
             Thread thr = new Thread(new ThreadStart(StartListener));
             thr.IsBackground = true;
@@ -161,9 +211,11 @@ namespace KFServerPerks
             while (thr.ThreadState != ThreadState.Stopped)
                 if (Console.ReadLine() == "exit")
                     break;
+                else
+                    SendMessage( endpoint, ENetID.ID_KeepAlive, Console.ReadLine() );
 
             soc?.Close();
         }
 
     }
-} 
+}
