@@ -11,43 +11,23 @@ using System.Collections.Generic;
 namespace KFServerPerks
 {
 
+    public static class Settings
+    {
+        public static int    Port = 6000;
+        public static string Password = "nope";
+
+        public static string MySQLHost;
+        public static string MySQLPass;
+        public static string MySQLDatabase;
+        public static string MySQLPort;
+    }
+
     class Program
     {
-        private static int Port        = 6000;
-        private static string Password = "nope";
-
         private static UdpClient  soc      = null;
         private static IPEndPoint endpoint = null;
 
         private static List<string> connections;
-
-        [AttributeUsage(System.AttributeTargets.Method)]
-        public class ENetCommandType : Attribute
-        {
-            public string cmdType;
-            public ENetID cmdInt;
-
-            public ENetCommandType(string name, ENetID cmd)
-            {
-                this.cmdType = name;
-                this.cmdInt = cmd;
-            }
-        }
-
-        static string ConvertToSteamID32(string steamid64)
-        {
-            long sid;
-            string steamId = "";
-
-            if (long.TryParse(steamid64, out sid))
-            {
-                long accountid = sid - (sid >> 32 << 32);
-                int lastBit = accountid % 2 == 0 ? 0 : 1;
-                steamId = "STEAM_0:" + lastBit + ":" + (accountid >> 1).ToString();
-            }
-
-            return steamId;
-        }
 
         static bool IsRegistered(IPEndPoint endpoint)
         {
@@ -64,7 +44,7 @@ namespace KFServerPerks
 
         static void StartListener()
         {
-            soc = new UdpClient(new IPEndPoint(IPAddress.Any, Port));
+            soc = new UdpClient(new IPEndPoint(IPAddress.Any, Settings.Port ));
             endpoint = new IPEndPoint(IPAddress.Any, 5000);
 
             while (soc.Client != null)
@@ -138,7 +118,7 @@ namespace KFServerPerks
 
         static void MessageReceived(IPEndPoint endpoint, string text)
         {
-
+            Console.WriteLine(text);
         }
 
         [ENetCommandType("ConnectionStart", ENetID.ID_Open)]
@@ -150,7 +130,7 @@ namespace KFServerPerks
         [ENetCommandType("CheckPassword", ENetID.ID_HeresPassword)]
         public static void CheckPassword( IPEndPoint endpoint, string data)
         {
-            if (data == Password)
+            if (data == Settings.Password)
             {
                 SendMessage( endpoint, ENetID.ID_PasswordCorrect );
                 connections.Add(endpoint.Address.ToString());
@@ -169,30 +149,37 @@ namespace KFServerPerks
             Logging.Log("Keep alive request.");
         }
 
-        [ENetCommandType("NewPlayer", ENetID.ID_NewPlayer)]
-        public static void NewPlayer(IPEndPoint endpoint, string data)
+        [ENetCommandType("GetPlayer", ENetID.ID_NewPlayer)]
+        public static void GetPlayer(IPEndPoint endpoint, string data)
         {
             string[] tbl      = data.Split(new char[] { '*' });
             string steamid64  = tbl[0];
-            string steamid32  = ConvertToSteamID32(steamid64);
             string name       = tbl[1];
 
-            SendMessage(endpoint, ENetID.ID_NewPlayer, $"0|{steamid64}" );
+            User ply           = new User(steamid64, User.ID_TYPE.STEAMID_64);
+
+            string[] id32split = ply.steamid32.Split(new char[] { ':' });
+            string condencedId = (int.Parse(id32split[1]) + 1) + id32split[2];
 
             // Requires you to send back the users data, if its new then return nothing.
-            SendMessage(endpoint, ENetID.ID_SendPlayerData, $"0|" );
+            SendMessage(endpoint, ENetID.ID_NewPlayer, $"{condencedId}|{steamid64}" );
+            SendMessage(endpoint, ENetID.ID_SendPlayerData, $"{condencedId}|{ (char)10 }" );
 
-            Logging.Log($"Player received: {name} ({steamid32})");
+            Logging.Log($"Player received: {name} ({ply.steamid32})");
         }
 
         [ENetCommandType("UpdatePlayer", ENetID.ID_UpdatePlayer)]
         public static void UpdatePlayer( IPEndPoint endpoint, string data )
         {
             string[] dataArr = data.Split(new char[] { '|' });
-            int playerId = int.Parse(dataArr[0]);
-            string[] stats = dataArr[1].Split(new char[] { ',' });
+            string playerId  = "STEAM_0:" + ( int.Parse(dataArr[0][0].ToString()) - 1 ) + ":" + dataArr[0].Substring(1);
+            string[] stats   = dataArr[1].Split(new char[] { ',' });
 
-            Stats playerstats = new Stats(playerId, stats);
+            User playerstats = new User(playerId, User.ID_TYPE.STEAMID_32);
+            playerstats.SetStats(stats);
+            playerstats.SaveToDatabase();
+  
+            Logging.Log($"Received UpdatePlayer for {playerId}");
         }
 
         static void Main(string[] args)
@@ -200,7 +187,7 @@ namespace KFServerPerks
             Console.Title            = "KillingFloor Perk Server 0.1";
             Console.ForegroundColor  = ConsoleColor.Gray;
 
-            Logging.Log($"Listening on Port {Port} with Password '{Password}'.");
+            Logging.Log($"Listening on Port {Settings.Port} with Password '{Settings.Password}'.");
 
             connections = new List<string>();
 
