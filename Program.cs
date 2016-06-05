@@ -1,25 +1,26 @@
-﻿using System;
-using System.Net;
+﻿using KFServerPerks.util;
+using System;
+using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
+using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
-using KFServerPerks.util;
-using System.Collections.Generic;
+using System.Threading;
 
 namespace KFServerPerks
 {
 
     public static class Settings
     {
-        public static int    Port = 6000;
-        public static string Password = "nope";
+        public static int    Port            = 6000;
+        public static string Password        = "nope";
 
-        public static string MySQLHost;
-        public static string MySQLPass;
-        public static string MySQLDatabase;
-        public static string MySQLPort;
+        public static string MySQLHost       = "localhost";
+        public static string MySQLUsername   = "root";
+        public static string MySQLPasswword  = "";
+        public static string MySQLDatabase   = "killingfloor";
+        public static int    MySQLPort       = 3306;
     }
 
     class Program
@@ -156,30 +157,46 @@ namespace KFServerPerks
             string steamid64  = tbl[0];
             string name       = tbl[1];
 
-            User ply           = new User(steamid64, User.ID_TYPE.STEAMID_64);
+            if (steamid64.ToLower() == "none")
+            {
+                Logging.Log( "[RECEIVED] Player Id received as None!" );
+                return;
+            }
 
-            string[] id32split = ply.steamid32.Split(new char[] { ':' });
-            string condencedId = (int.Parse(id32split[1]) + 1) + id32split[2];
+            using (User ply = new User(steamid64, User.ID_TYPE.STEAMID_64))
+            {
+                string[] id32split = ply.steamid32.Split(new char[] { ':' });
+                string condencedId = (int.Parse(id32split[1]) + 1) + id32split[2];
 
-            // Requires you to send back the users data, if its new then return nothing.
-            SendMessage(endpoint, ENetID.ID_NewPlayer, $"{condencedId}|{steamid64}" );
-            SendMessage(endpoint, ENetID.ID_SendPlayerData, $"{condencedId}|{ (char)10 }" );
+                // Requires you to send back the users data, if its new then return nothing.
+                SendMessage(endpoint, ENetID.ID_NewPlayer, $"{condencedId}|{steamid64}");
+                SendMessage(endpoint, ENetID.ID_SendPlayerData, $"{condencedId}|{ (char)10 }");
 
-            Logging.Log($"Player received: {name} ({ply.steamid32})");
+                Logging.Log($"Player received: {name} ({ply.steamid32})");
+            };
+
         }
 
         [ENetCommandType("UpdatePlayer", ENetID.ID_UpdatePlayer)]
         public static void UpdatePlayer( IPEndPoint endpoint, string data )
         {
             string[] dataArr = data.Split(new char[] { '|' });
-            string playerId  = "STEAM_0:" + ( int.Parse(dataArr[0][0].ToString()) - 1 ) + ":" + dataArr[0].Substring(1);
-            string[] stats   = dataArr[1].Split(new char[] { ',' });
+            if (dataArr[0].ToLower() == "none")
+            {
+                Logging.Log("[RECEIVED] Player Id received as None!");
+                return;
+            }
 
-            User playerstats = new User(playerId, User.ID_TYPE.STEAMID_32);
-            playerstats.SetStats(stats);
-            playerstats.SaveToDatabase();
-  
-            Logging.Log($"Received UpdatePlayer for {playerId}");
+            string playerId  = "STEAM_0:" + ( int.Parse(dataArr[0][0].ToString()) - 1 ) + ":" + dataArr[0].Substring(1);
+            string[] stats   = dataArr[1].Split(new char[] { ':', ',' });
+
+            using (User playerstats = new User(playerId, User.ID_TYPE.STEAMID_32))
+            {
+                playerstats.SetStats(stats);
+                playerstats.SaveToDatabase();
+
+                Logging.Log($"Received UpdatePlayer for {playerId}");
+            };
         }
 
         static void Main(string[] args)
