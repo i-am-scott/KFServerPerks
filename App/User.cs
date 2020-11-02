@@ -40,7 +40,7 @@ namespace KFServerPerks
             string[] id32split = Steamid32.Split(new char[] { ':' });
             Id = int.Parse(id32split[1]) + 1 + id32split[2];
 
-            db = new Mysql(Settings.MySQLHost, Settings.MySQLUsername, Settings.MySQLPasswword, Settings.MySQLDatabase);
+            db = new Mysql(Program.settings.MySQLHost, Program.settings.MySQLUsername, Program.settings.MySQLPasswword, Program.settings.MySQLDatabase);
             db.Connect();
         }
 
@@ -145,7 +145,7 @@ namespace KFServerPerks
 
             try
             {
-                DataTable data = db.Query($"SELECT * FROM {Settings.MySQLPerksTable} WHERE steamid64 = ? LIMIT 1", Steamid64);
+                DataTable data = db.Query($"SELECT * FROM {Program.settings.MySQLPerksTable} WHERE steamid64 = ? LIMIT 1", Steamid64);
                 if (data == null || data.Rows.Count == 0) return false;
 
                 object[] row = data.Rows[0].ItemArray;

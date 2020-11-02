@@ -10,31 +10,17 @@ using System.Threading;
 
 namespace KFServerPerks
 {
-    public static class Settings
+    public class Program
     {
-        public static bool AllowAll = true;
-        public static int ServerPort = 6000;
-        public static string ServerPassword = "nope";
-
-        public static string MySQLHost = "127.0.0.1";
-        public static string MySQLUsername = "test";
-        public static string MySQLPasswword = "test";
-        public static string MySQLDatabase = "killingfloor";
-        public static string MySQLPerksTable = "perks";
-        public static int MySQLPort = 3306;
-    }
-
-    class Program
-    {
+        public static Settings settings = Settings.Load();
         private static EndPoint serverEndPoint;
         private static Socket serverSocket = null;
         private static EndPoint clientEndPoint = null;
-
-        private static List<string> connections;
+        private static List<string> connections = new List<string>();
 
         static bool IsRegistered(IPEndPoint endpoint)
         {
-            if (Settings.AllowAll) return true;
+            if (settings.AllowAll) return true;
 
             bool whitelisted = connections.Exists(element => element == endpoint.Address + ":" + endpoint.Port);
             if (!whitelisted)
@@ -48,7 +34,7 @@ namespace KFServerPerks
 
         static void StartListener()
         {
-            serverEndPoint = new IPEndPoint(IPAddress.Any, Settings.ServerPort);
+            serverEndPoint = new IPEndPoint(IPAddress.Any, settings.ServerPort);
             serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
             serverSocket.Bind(serverEndPoint);
             clientEndPoint = new IPEndPoint(IPAddress.Any, 6000);
@@ -131,7 +117,7 @@ namespace KFServerPerks
         [ENetCommandType("CheckPassword", ENetID.ID_HeresPassword)]
         public static void CheckPassword(IPEndPoint endpoint, string data)
         {
-            if (data == Settings.ServerPassword)
+            if (data == settings.ServerPassword)
             {
                 SendMessage(endpoint, ENetID.ID_PasswordCorrect);
                 connections.Add(endpoint.Address + ":" + endpoint.Port);
@@ -207,10 +193,7 @@ namespace KFServerPerks
         {
             Console.Title = "KillingFloor Perk Server 0.1";
             Console.ForegroundColor = ConsoleColor.Gray;
-
-            Logging.Log($"Listening on Port {Settings.ServerPort} with Password '{Settings.ServerPassword}'.");
-
-            connections = new List<string>();
+            Logging.Log($"Listening on Port {settings.ServerPort} with Password '{settings.ServerPassword}'.");
 
             Thread thr = new Thread(new ThreadStart(StartListener));
             thr.IsBackground = true;
