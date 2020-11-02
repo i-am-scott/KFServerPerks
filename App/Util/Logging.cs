@@ -8,17 +8,17 @@ namespace KFServerPerks.util
     {
         public static string logFolder = "./logs/";
 
-        public static void Log( string fileName, string text, bool print = true )
+        public static void Log(string fileName, string text, bool print = true)
         {
-            string logtext  = $"[{DateTime.Now}] {text}";
+            string logtext = $"[{DateTime.Now}] {text}";
             string filePath = logFolder + fileName;
 
             try
             {
                 Directory.CreateDirectory(logFolder);
-                File.AppendAllText(filePath, logtext + "\n" );
+                File.AppendAllText(filePath, logtext + "\n");
             }
-            catch( Exception e )
+            catch (Exception e)
             {
                 Console.WriteLine($"[ERROR] {e.Message}\n{e.StackTrace}");
             }
@@ -27,10 +27,10 @@ namespace KFServerPerks.util
                 Console.WriteLine(logtext);
         }
 
-        public static void Log( string text, bool print = true )
+        public static void Log(string text, bool print = true)
         {
-            string date = DateTime.Now.ToShortDateString().Replace( '/', '-' ) + ".log";
-            Log( date, text, print);
+            string date = DateTime.Now.ToShortDateString().Replace('/', '-') + ".log";
+            Log(date, text, print);
         }
 
     }

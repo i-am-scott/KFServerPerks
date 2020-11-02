@@ -10,34 +10,37 @@ using System.Threading;
 
 namespace KFServerPerks
 {
-
     public static class Settings
     {
-        public static int    Port            = 6000;
-        public static string Password        = "nope";
+        public static bool AllowAll = true;
+        public static int ServerPort = 6000;
+        public static string ServerPassword = "nope";
 
-        public static string MySQLHost       = "localhost";
-        public static string MySQLUsername   = "root";
-        public static string MySQLPasswword  = "";
-        public static string MySQLDatabase   = "killingfloor";
-        public static int    MySQLPort       = 3306;
+        public static string MySQLHost = "127.0.0.1";
+        public static string MySQLUsername = "test";
+        public static string MySQLPasswword = "test";
+        public static string MySQLDatabase = "killingfloor";
+        public static string MySQLPerksTable = "perks";
+        public static int MySQLPort = 3306;
     }
 
     class Program
     {
-        private static UdpClient  soc      = null;
-        private static IPEndPoint endpoint = null;
+        private static EndPoint serverEndPoint;
+        private static Socket serverSocket = null;
+        private static EndPoint clientEndPoint = null;
 
         private static List<string> connections;
 
         static bool IsRegistered(IPEndPoint endpoint)
         {
-            bool whitelisted = connections.Exists(element => element == endpoint.Address.ToString());
+            if (Settings.AllowAll) return true;
 
-            if ( !whitelisted)
+            bool whitelisted = connections.Exists(element => element == endpoint.Address + ":" + endpoint.Port);
+            if (!whitelisted)
             {
                 Logging.Log($"UNAUTHORIZED CONNECTION MADE.");
-                SendMessage(endpoint, ENetID.ID_ConnectionClosed );
+                SendMessage(endpoint, ENetID.ID_ConnectionClosed);
             }
 
             return whitelisted;
@@ -45,33 +48,35 @@ namespace KFServerPerks
 
         static void StartListener()
         {
-            soc = new UdpClient(new IPEndPoint(IPAddress.Any, Settings.Port ));
-            endpoint = new IPEndPoint(IPAddress.Any, 5000);
+            serverEndPoint = new IPEndPoint(IPAddress.Any, Settings.ServerPort);
+            serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            serverSocket.Bind(serverEndPoint);
+            clientEndPoint = new IPEndPoint(IPAddress.Any, 6000);
 
-            while (soc.Client != null)
-                OnMessageReceived(soc.Receive(ref endpoint));
-
-            soc.Close();
+            while (true)
+            {
+                byte[] data = new byte[2048];
+                int recv = serverSocket.ReceiveFrom(data, ref clientEndPoint);
+                OnMessageReceived(data, recv);
+            }
         }
 
-        static void OnMessageReceived(byte[] res)
+        static void OnMessageReceived(byte[] res, int length)
         {
-            ENetID cmd     = (ENetID)res[0];
-            byte[] data    = new ArraySegment<byte>(res, 1, res.Length - 1).ToArray();
-            string encoded = Encoding.ASCII.GetString(data);
+            ENetID cmd = (ENetID)res[0];
+            string encoded = Encoding.ASCII.GetString(res, 1, length - 1);
 
-            Logging.Log( $"[RECEIVED] {endpoint.Address}:{endpoint.Port} {cmd} {data.Length} bytes | {encoded}" );
+            IPEndPoint receviedEndPoint = clientEndPoint as IPEndPoint;
+            Logging.Log($"[RECEIVED] {receviedEndPoint.Address}:{receviedEndPoint.Port} {cmd} {length} bytes | {encoded}");
 
             /* Attempt to map message type to method with the correct attribute. */
             MethodInfo[] methods = typeof(Program).GetMethods()
                          .Where(m => m.GetCustomAttributes(typeof(ENetCommandType), false).Length > 0)
                          .ToArray();
 
-            //if (cmd != ENetID.ID_HeresPassword && cmd != ENetID.ID_Open && cmd != ENetID.ID_KeepAlive);
-               // if (!IsRegistered(endpoint))
-               //     return;
-
-            bool found = false;
+            if (cmd != ENetID.ID_HeresPassword && cmd != ENetID.ID_Open && cmd != ENetID.ID_KeepAlive)
+                if (!IsRegistered(receviedEndPoint))
+                    return;
 
             try
             {
@@ -85,26 +90,27 @@ namespace KFServerPerks
                     if (((int)id == (int)cmd))
                     {
                         method.Invoke(null, (new object[] {
-                            endpoint,
+                            receviedEndPoint,
                             encoded
                         }));
-
-                        found = true;
                         break;
                     }
                 }
-            }catch( Exception e )
-            {
-                Logging.Log( e.Message, true);
             }
-
-            if (!found)
-                MessageReceived(endpoint, encoded);
+            catch (Exception e)
+            {
+                Logging.Log(e.Message, true);
+            }
         }
 
-        static void SendMessage( IPEndPoint endpoint, ENetID type, string message = "" )
+        static void SendMessage(EndPoint endpoint, ENetID type, string message = "")
         {
-            byte[] msgarr       = Encoding.ASCII.GetBytes(message);
+            SendMessage(endpoint as IPEndPoint, type, message);
+        }
+
+        static void SendMessage(IPEndPoint endpoint, ENetID type, string message = "")
+        {
+            byte[] msgarr = Encoding.ASCII.GetBytes(message);
             List<byte> dataList = new List<byte>(msgarr.Length + 1);
 
             dataList.Add(Convert.ToByte((int)type));
@@ -112,40 +118,34 @@ namespace KFServerPerks
 
             byte[] broadcastmsg = dataList.ToArray();
 
-            Logging.Log( $"[SENT] {endpoint.Address}:{endpoint.Port} {type} {msgarr.Length} bytes | {message}");
-
-            soc.Send(broadcastmsg, broadcastmsg.Length, endpoint );
-        }
-
-        static void MessageReceived(IPEndPoint endpoint, string text)
-        {
-            Console.WriteLine(text);
+            Logging.Log($"[SENT] {endpoint.Address}:{endpoint.Port} {type} {msgarr.Length} bytes | {message}");
+            serverSocket.SendTo(broadcastmsg, broadcastmsg.Length, SocketFlags.None, clientEndPoint);
         }
 
         [ENetCommandType("ConnectionStart", ENetID.ID_Open)]
         public static void ConnectionStart(IPEndPoint endpoint, string data)
         {
-            SendMessage( endpoint, ENetID.ID_RequestPassword );
+            SendMessage(endpoint, ENetID.ID_RequestPassword);
         }
 
         [ENetCommandType("CheckPassword", ENetID.ID_HeresPassword)]
-        public static void CheckPassword( IPEndPoint endpoint, string data)
+        public static void CheckPassword(IPEndPoint endpoint, string data)
         {
-            if (data == Settings.Password)
+            if (data == Settings.ServerPassword)
             {
-                SendMessage( endpoint, ENetID.ID_PasswordCorrect );
-                connections.Add(endpoint.Address.ToString());
+                SendMessage(endpoint, ENetID.ID_PasswordCorrect);
+                connections.Add(endpoint.Address + ":" + endpoint.Port);
                 return;
             }
             else
             {
-                SendMessage( endpoint, ENetID.ID_ConnectionClosed );
+                SendMessage(endpoint, ENetID.ID_ConnectionClosed);
                 return;
             }
         }
- 
+
         [ENetCommandType("KeepAlive", ENetID.ID_KeepAlive)]
-        public static void KeepAlive( IPEndPoint endpoint, string data )
+        public static void KeepAlive(IPEndPoint endpoint, string data)
         {
             Logging.Log("Keep alive request.");
         }
@@ -153,32 +153,36 @@ namespace KFServerPerks
         [ENetCommandType("GetPlayer", ENetID.ID_NewPlayer)]
         public static void GetPlayer(IPEndPoint endpoint, string data)
         {
-            string[] tbl      = data.Split(new char[] { '*' });
-            string steamid64  = tbl[0];
-            string name       = tbl[1];
+            string[] tbl = data.Split(new char[] { '*' });
+            string steamid64 = tbl[0];
+            string name = tbl[1];
 
             if (steamid64.ToLower() == "none")
             {
-                Logging.Log( "[RECEIVED] Player Id received as None!" );
+                Logging.Log("[RECEIVED] Player Id received as None! No idea what this means. It should be the player's steamid64. IGNORING.");
                 return;
             }
 
-            using (User ply = new User(steamid64, User.ID_TYPE.STEAMID_64))
+            using (User pl = new User(steamid64, User.ID_TYPE.STEAMID_64))
             {
-                string[] id32split = ply.steamid32.Split(new char[] { ':' });
-                string condencedId = (int.Parse(id32split[1]) + 1) + id32split[2];
+                if (pl.LoadFromDatabase())
+                {
+                    SendMessage(endpoint, ENetID.ID_NewPlayer, $"{pl.Id}|{steamid64}");
+                    SendMessage(endpoint, ENetID.ID_SendPlayerData, $"{pl.Id}|{pl.KfStringFormat}" + Environment.NewLine);
+                }
+                else
+                {
+                    SendMessage(endpoint, ENetID.ID_NewPlayer, $"{pl.Id}|{steamid64}");
+                    SendMessage(endpoint, ENetID.ID_SendPlayerData, $"{pl.Id}|{steamid64}|{(char)10}"); // Why does he want this. :(
+                }
 
-                // Requires you to send back the users data, if its new then return nothing.
-                SendMessage(endpoint, ENetID.ID_NewPlayer, $"{condencedId}|{steamid64}");
-                SendMessage(endpoint, ENetID.ID_SendPlayerData, $"{condencedId}|{ (char)10 }");
-
-                Logging.Log($"Player received: {name} ({ply.steamid32})");
+                Logging.Log($"Player received: {name} ({pl.Steamid32})");
             };
 
         }
 
         [ENetCommandType("UpdatePlayer", ENetID.ID_UpdatePlayer)]
-        public static void UpdatePlayer( IPEndPoint endpoint, string data )
+        public static void UpdatePlayer(IPEndPoint endpoint, string data)
         {
             string[] dataArr = data.Split(new char[] { '|' });
             if (dataArr[0].ToLower() == "none")
@@ -187,13 +191,13 @@ namespace KFServerPerks
                 return;
             }
 
-            string playerId  = "STEAM_0:" + ( int.Parse(dataArr[0][0].ToString()) - 1 ) + ":" + dataArr[0].Substring(1);
-            string[] stats   = dataArr[1].Split(new char[] { ':', ',' });
+            string playerId = "STEAM_0:" + (int.Parse(dataArr[0][0].ToString()) - 1) + ":" + dataArr[0].Substring(1);
+            string[] stats = dataArr[1].Split(new char[] { ',' });
 
-            using (User playerstats = new User(playerId, User.ID_TYPE.STEAMID_32))
+            using (User pl = new User(playerId, User.ID_TYPE.STEAMID_32))
             {
-                playerstats.SetStats(stats);
-                playerstats.SaveToDatabase();
+                pl.SetStats(stats);
+                pl.SaveToDatabase();
 
                 Logging.Log($"Received UpdatePlayer for {playerId}");
             };
@@ -201,10 +205,10 @@ namespace KFServerPerks
 
         static void Main(string[] args)
         {
-            Console.Title            = "KillingFloor Perk Server 0.1";
-            Console.ForegroundColor  = ConsoleColor.Gray;
+            Console.Title = "KillingFloor Perk Server 0.1";
+            Console.ForegroundColor = ConsoleColor.Gray;
 
-            Logging.Log($"Listening on Port {Settings.Port} with Password '{Settings.Password}'.");
+            Logging.Log($"Listening on Port {Settings.ServerPort} with Password '{Settings.ServerPassword}'.");
 
             connections = new List<string>();
 
@@ -216,9 +220,9 @@ namespace KFServerPerks
                 if (Console.ReadLine() == "exit")
                     break;
                 else
-                    SendMessage( endpoint, ENetID.ID_KeepAlive, Console.ReadLine() );
+                    SendMessage(clientEndPoint, ENetID.ID_KeepAlive, Console.ReadLine());
 
-            soc?.Close();
+            serverSocket?.Close();
         }
 
     }
