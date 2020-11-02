@@ -5,7 +5,7 @@ namespace KFServerPerks
 {
     public class Settings
     {
-        public bool AllowAll = true;
+        public bool AllowAll = false;
         public int ServerPort = 6000;
         public string ServerPassword = "nope";
 
