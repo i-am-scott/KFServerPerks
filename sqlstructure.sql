@@ -1,4 +1,4 @@
-﻿CREATE TABLE perks (
+﻿CREATE TABLE IF NOT EXISTS perks (
   p_veterancy VARCHAR(100),
   p_perkIndex     INT UNSIGNED NOT NULL,
   p_damageHealed  INT UNSIGNED NOT NULL,
