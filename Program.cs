@@ -62,11 +62,16 @@ namespace KFServerPerks
 
         private static void OnMessageReceived(byte[] res, int length)
         {
+            IPEndPoint receviedEndPoint = clientEndPoint as IPEndPoint;
+            if (settings.Whitelist.Count > 0 && !settings.Whitelist.Contains(receviedEndPoint.Address.ToString()))
+            {
+                Logging.Log($"[WHITELIST] {receviedEndPoint.Address}:{receviedEndPoint.Port} sent a request but is not whitelisted");
+                return;
+            }
+
             ENetID cmd = (ENetID)res[0];
             string encoded = Encoding.ASCII.GetString(res, 1, length - 1);
-
-            IPEndPoint receviedEndPoint = clientEndPoint as IPEndPoint;
-            Logging.Log($"[RECEIVED] {receviedEndPoint.Address}:{receviedEndPoint.Port} {cmd} {length} bytes | {encoded}");
+            Logging.Log($"[RECEIVED] {receviedEndPoint.Address}:{receviedEndPoint.Port} {cmd} {length} bytes | {encoded.Replace(Environment.NewLine, "")}");
 
             if (cmd != ENetID.ID_HeresPassword && cmd != ENetID.ID_Open && cmd != ENetID.ID_KeepAlive)
                 if (!IsRegistered(receviedEndPoint))

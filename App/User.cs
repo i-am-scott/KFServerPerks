@@ -1,8 +1,10 @@
-﻿using KFServerPerks.util;
+﻿using KFServerPerks.SteamKit2;
+using KFServerPerks.util;
 using System;
 using System.Collections.Specialized;
 using System.Data;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace KFServerPerks
 {
@@ -16,7 +18,6 @@ namespace KFServerPerks
         }
 
         private readonly Mysql db;
-
         public string InternalId;
         public readonly string Steamid64;
         public readonly string Steamid32;
@@ -28,7 +29,8 @@ namespace KFServerPerks
         {
             if (type == ID_TYPE.STEAMID_32)
             {
-                Steamid64 = SteamID32To64(id);
+                SteamID sid = new SteamID(id, EUniverse.Public);
+                Steamid64 = sid.ConvertToUInt64().ToString();
                 Steamid32 = id;
             }
             else if (type == ID_TYPE.STEAMID_64)
@@ -41,7 +43,9 @@ namespace KFServerPerks
             {
                 InternalId = id;
                 Steamid32 = InternalIDToSteamID32(id);
-                Steamid64 = SteamID32To64(Steamid32);
+
+                SteamID sid = new SteamID(Steamid32, EUniverse.Public);
+                Steamid64 = sid.ConvertToUInt64().ToString();
             }
             else
             {
@@ -81,15 +85,6 @@ namespace KFServerPerks
             }
 
             return steamId;
-        }
-
-        private string SteamID32To64(string steamid32)
-        {
-            steamid32 = steamid32.Replace("STEAM_", "");
-            string[] split = steamid32.Split(':');
-            string id = "765611979" + ((Convert.ToInt64(split[2]) * 2) + 60265728 + Convert.ToInt64(split[1])).ToString();
-
-            return id;
         }
 
         private void PopulateStats(string vetInfo, string[] stats)
@@ -174,7 +169,7 @@ namespace KFServerPerks
                 if (data == null || data.Rows.Count == 0) return false;
 
                 object[] row = data.Rows[0].ItemArray;
-                string[] items = row.ToList().Skip(2).Select(val => val.ToString()).Take(row.Count() - 7).ToArray();
+                string[] items = row.ToList().Skip(2).Select(val => val.ToString()).Take(row.Count() - 6).ToArray();
 
                 PopulateStats(row[0] + ":" + row[1], items);
                 return true;

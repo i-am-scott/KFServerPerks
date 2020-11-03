@@ -1,4 +1,5 @@
 ﻿using Newtonsoft.Json;
+using System.Collections.Generic;
 using System.IO;
 
 namespace KFServerPerks
@@ -8,6 +9,7 @@ namespace KFServerPerks
         public bool AllowAll = false;
         public int ServerPort = 6000;
         public string ServerPassword = "nope";
+        public List<string> Whitelist = new List<string>();
 
         public string MySQLHost = "127.0.0.1";
         public string MySQLUsername = "test";
