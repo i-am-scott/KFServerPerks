@@ -38,7 +38,7 @@ namespace KFServerPerks
         {
             if (settings.AllowAll) return true;
 
-            bool whitelisted = connections.Exists(element => element == endpoint.Address + ":" + endpoint.Port);
+            bool whitelisted = connections.Exists(element => element == endpoint.GetAddressString());
             if (!whitelisted)
                 SendMessage(endpoint, ENetID.ID_ConnectionClosed);
   
@@ -130,7 +130,7 @@ namespace KFServerPerks
             if (data == settings.ServerPassword)
             {
                 SendMessage(endpoint, ENetID.ID_PasswordCorrect);
-                connections.Add(endpoint.Address + ":" + endpoint.Port);
+                connections.Add(endpoint.GetAddressString());
             }
             else
             {
