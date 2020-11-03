@@ -6,7 +6,7 @@ using System.Linq;
 
 namespace KFServerPerks
 {
-    public class User : IDisposable
+    public class User
     {
         public enum ID_TYPE
         {
@@ -16,7 +16,6 @@ namespace KFServerPerks
         }
 
         private readonly Mysql db;
-        private bool disposedValue = false;
 
         public string InternalId;
         public readonly string Steamid64;
@@ -32,13 +31,13 @@ namespace KFServerPerks
                 Steamid64 = SteamID32To64(id);
                 Steamid32 = id;
             }
-            else if(type == ID_TYPE.STEAMID_64)
+            else if (type == ID_TYPE.STEAMID_64)
             {
                 Steamid64 = id;
                 Steamid32 = SteamID64To32(id);
             }
 
-            if(type == ID_TYPE.INTERNAL)
+            if (type == ID_TYPE.INTERNAL)
             {
                 InternalId = id;
                 Steamid32 = InternalIDToSteamID32(id);
@@ -50,14 +49,13 @@ namespace KFServerPerks
             }
 
             db = new Mysql(Program.settings.MySQLHost, Program.settings.MySQLUsername, Program.settings.MySQLPasswword, Program.settings.MySQLDatabase);
-            db.Connect();
         }
 
         private string SteamID32ToInternalID(string id)
         {
             id = Steamid32.Replace("STEAM_0", "").Replace(":", "");
 
-            int realmId = Convert.ToInt32(id.Substring(0,1));
+            int realmId = Convert.ToInt32(id.Substring(0, 1));
             id = ++realmId + id.Remove(0, 1);
 
             return id;
@@ -156,8 +154,6 @@ namespace KFServerPerks
             string values = string.Join(", ", keys.Select(key => ("@" + key)));
             string query = $@"REPLACE INTO perks({ fields }) VALUES({values});";
 
-            Console.WriteLine(query);
-
             try
             {
                 db.Query(query, PerkData);
@@ -178,7 +174,7 @@ namespace KFServerPerks
                 if (data == null || data.Rows.Count == 0) return false;
 
                 object[] row = data.Rows[0].ItemArray;
-                string[] items = row.ToList().Skip(2).Select(val => val.ToString()).Take(row.Count() - 5).ToArray();
+                string[] items = row.ToList().Skip(2).Select(val => val.ToString()).Take(row.Count() - 7).ToArray();
 
                 PopulateStats(row[0] + ":" + row[1], items);
                 return true;
@@ -190,25 +186,6 @@ namespace KFServerPerks
 
             return false;
         }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!disposedValue)
-            {
-                if (disposing)
-                {
-                    db.Dispose();
-                }
-                disposedValue = true;
-            }
-        }
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
     }
 
 }

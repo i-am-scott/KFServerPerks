@@ -3,15 +3,12 @@
 namespace KFServerPerks
 {
 
-    [AttributeUsage(System.AttributeTargets.Method)]
+    [AttributeUsage(AttributeTargets.Method)]
     public class ENetCommandType : Attribute
     {
-        public string cmdType;
         public ENetID cmdInt;
-
-        public ENetCommandType(string name, ENetID cmd)
+        public ENetCommandType(ENetID cmd)
         {
-            cmdType = name;
             cmdInt = cmd;
         }
     }

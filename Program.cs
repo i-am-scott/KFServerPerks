@@ -1,4 +1,5 @@
 ﻿using KFServerPerks.util;
+using Microsoft.VisualBasic.CompilerServices;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -18,17 +19,29 @@ namespace KFServerPerks
         private static EndPoint clientEndPoint = null;
         private static List<string> connections = new List<string>();
 
+        public static Dictionary<ENetID, MethodInfo> messageReceivers;
+        private static void RegisterMessageReceivers()
+        {
+            messageReceivers = new Dictionary<ENetID, MethodInfo>();
+            MethodInfo[] methods = typeof(Program).GetMethods()
+                         .Where(m => m.GetCustomAttributes(typeof(ENetCommandType), false).Length > 0)
+                         .ToArray();
+
+            foreach(MethodInfo method in methods)
+            {
+                ENetCommandType attr = method.GetCustomAttribute<ENetCommandType>();
+                messageReceivers.Add(attr.cmdInt, method);
+            }
+        }
+
         private static bool IsRegistered(IPEndPoint endpoint)
         {
             if (settings.AllowAll) return true;
 
             bool whitelisted = connections.Exists(element => element == endpoint.Address + ":" + endpoint.Port);
             if (!whitelisted)
-            {
-                Logging.Log($"UNAUTHORIZED CONNECTION MADE.");
                 SendMessage(endpoint, ENetID.ID_ConnectionClosed);
-            }
-
+  
             return whitelisted;
         }
 
@@ -55,32 +68,18 @@ namespace KFServerPerks
             IPEndPoint receviedEndPoint = clientEndPoint as IPEndPoint;
             Logging.Log($"[RECEIVED] {receviedEndPoint.Address}:{receviedEndPoint.Port} {cmd} {length} bytes | {encoded}");
 
-            /* Attempt to map message type to method with the correct attribute. */
-            MethodInfo[] methods = typeof(Program).GetMethods()
-                         .Where(m => m.GetCustomAttributes(typeof(ENetCommandType), false).Length > 0)
-                         .ToArray();
-
             if (cmd != ENetID.ID_HeresPassword && cmd != ENetID.ID_Open && cmd != ENetID.ID_KeepAlive)
                 if (!IsRegistered(receviedEndPoint))
                     return;
 
             try
             {
-                for (int I = 0; I < methods.Length; I++)
+                if (messageReceivers.ContainsKey(cmd))
                 {
-                    MethodInfo method = methods[I];
-                    ENetCommandType attr = method.GetCustomAttribute<ENetCommandType>();
-                    string name = attr.cmdType;
-                    ENetID id = attr.cmdInt;
-
-                    if (((int)id == (int)cmd))
-                    {
-                        method.Invoke(null, (new object[] {
-                            receviedEndPoint,
-                            encoded
-                        }));
-                        break;
-                    }
+                    messageReceivers[cmd]?.Invoke(null, (new object[] {
+                        receviedEndPoint,
+                        encoded
+                    }));
                 }
             }
             catch (Exception e)
@@ -93,7 +92,7 @@ namespace KFServerPerks
         {
             SendMessage(endpoint as IPEndPoint, type, message);
 
-            if(type == ENetID.ID_ConnectionClosed)
+            if (type == ENetID.ID_ConnectionClosed)
                 CloseConnection(endpoint as IPEndPoint);
         }
 
@@ -114,13 +113,13 @@ namespace KFServerPerks
             serverSocket.SendTo(broadcastmsg, broadcastmsg.Length, SocketFlags.None, clientEndPoint);
         }
 
-        [ENetCommandType("ConnectionStart", ENetID.ID_Open)]
+        [ENetCommandType(ENetID.ID_Open)]
         public static void ConnectionStart(IPEndPoint endpoint, string data)
         {
             SendMessage(endpoint, ENetID.ID_RequestPassword);
         }
 
-        [ENetCommandType("CheckPassword", ENetID.ID_HeresPassword)]
+        [ENetCommandType(ENetID.ID_HeresPassword)]
         public static void CheckPassword(IPEndPoint endpoint, string data)
         {
             if (data == settings.ServerPassword)
@@ -134,13 +133,13 @@ namespace KFServerPerks
             }
         }
 
-        [ENetCommandType("KeepAlive", ENetID.ID_KeepAlive)]
+        [ENetCommandType(ENetID.ID_KeepAlive)]
         public static void KeepAlive(IPEndPoint endpoint, string data)
         {
             Logging.Log("Keep alive request.");
         }
 
-        [ENetCommandType("GetPlayer", ENetID.ID_NewPlayer)]
+        [ENetCommandType(ENetID.ID_NewPlayer)]
         public static void GetPlayer(IPEndPoint endpoint, string data)
         {
             string[] tbl = data.Split(new char[] { '*' });
@@ -151,25 +150,22 @@ namespace KFServerPerks
             if (steamid64.ToLower() == "none")
                 return;
 
-            using (User pl = new User(steamid64, User.ID_TYPE.STEAMID_64))
+            User pl = new User(steamid64, User.ID_TYPE.STEAMID_64);
+            if (pl.LoadFromDatabase())
             {
-                if (pl.LoadFromDatabase())
-                {
-                    SendMessage(endpoint, ENetID.ID_NewPlayer, $"{pl.InternalId}|{steamid64}");
-                    SendMessage(endpoint, ENetID.ID_SendPlayerData, $"{pl.InternalId}|{pl.KfStringFormat}" + Environment.NewLine);
-                }
-                else
-                {
-                    SendMessage(endpoint, ENetID.ID_NewPlayer, $"{pl.InternalId}|{steamid64}");
-                    SendMessage(endpoint, ENetID.ID_SendPlayerData, $"{pl.InternalId}|{steamid64}|{(char)10}"); // Why does he want this. :(
-                }
+                SendMessage(endpoint, ENetID.ID_NewPlayer, $"{pl.InternalId}|{steamid64}");
+                SendMessage(endpoint, ENetID.ID_SendPlayerData, $"{pl.InternalId}|{pl.KfStringFormat}" + Environment.NewLine);
+            }
+            else
+            {
+                SendMessage(endpoint, ENetID.ID_NewPlayer, $"{pl.InternalId}|{steamid64}");
+                SendMessage(endpoint, ENetID.ID_SendPlayerData, $"{pl.InternalId}|{steamid64}|{(char)10}"); // Why does he want this. :(
+            }
 
-                Logging.Log($"Player received: {name} ({pl.Steamid32})");
-            };
-
+            Logging.Log($"Player received: {name} ({pl.Steamid32})");
         }
 
-        [ENetCommandType("UpdatePlayer", ENetID.ID_UpdatePlayer)]
+        [ENetCommandType(ENetID.ID_UpdatePlayer)]
         public static void UpdatePlayer(IPEndPoint endpoint, string data)
         {
             string[] dataArr = data.Split(new char[] { '|' });
@@ -177,16 +173,14 @@ namespace KFServerPerks
                 return;
 
             string[] stats = dataArr[1].Split(new char[] { ',' });
-            using (User pl = new User(dataArr[0], User.ID_TYPE.INTERNAL))
-            {
-                pl.SetStats(stats);
-                pl.SaveToDatabase();
+            User pl = new User(dataArr[0], User.ID_TYPE.INTERNAL);
+            pl.SetStats(stats);
+            pl.SaveToDatabase();
 
-                Logging.Log($"Received UpdatePlayer for {pl.Steamid32}");
-            };
+            Logging.Log($"Received UpdatePlayer for {pl.Steamid32}");
         }
 
-        [ENetCommandType("ConnectionClosed", ENetID.ID_ConnectionClosed)]
+        [ENetCommandType(ENetID.ID_ConnectionClosed)]
         public static void ConnectionClosed(IPEndPoint endpoint, string data)
         {
             Logging.Log("[RECEIVED] Connection closing.");
@@ -200,10 +194,10 @@ namespace KFServerPerks
                 Logging.Log($"[CONNECITON] No longer accepting connections from {addressStr}");
         }
 
-        public static System.Timers.Timer timer;
-
         static void Main(string[] args)
         {
+            RegisterMessageReceivers();
+
             Console.Title = "KillingFloor Perk Server 0.1";
             Console.ForegroundColor = ConsoleColor.Gray;
             Logging.Log($"Listening on Port {settings.ServerPort} with Password '{settings.ServerPassword}'.");
@@ -212,13 +206,6 @@ namespace KFServerPerks
             thr.IsBackground = true;
             thr.Start();
 
-            Logging.Log("Creating Heartbeat checker");
-
-            timer = new System.Timers.Timer(30000);
-            timer.Elapsed += Timer_Elapsed;
-            timer.AutoReset = true;
-            timer.Enabled = true;
-
             while (thr.ThreadState != ThreadState.Stopped)
                 if (Console.ReadLine() == "exit")
                     break;
@@ -226,14 +213,6 @@ namespace KFServerPerks
                     SendMessage(clientEndPoint, ENetID.ID_KeepAlive, Console.ReadLine());
 
             serverSocket?.Close();
-        }
-
-        private static void Timer_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
-        {
-            foreach(string address in connections)
-            {
-                // IPEndPoint ep = ep.Parse(address);
-            }
         }
     }
 }

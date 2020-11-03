@@ -36,7 +36,7 @@ namespace KFServerPerks.util
         public static void Log(object data, bool print = true)
         {
             Log(data.ToString(), false);
-            if(print)
+            if (print)
                 Console.Write(data);
         }
     }
