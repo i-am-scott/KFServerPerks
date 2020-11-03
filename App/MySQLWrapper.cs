@@ -1,6 +1,7 @@
 ﻿using KFServerPerks.util;
 using MySql.Data.MySqlClient;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Data;
@@ -80,14 +81,17 @@ namespace KFServerPerks
                 MySqlCommand cmd = new MySqlCommand(query, connection);
 
                 if (args != null)
-                    foreach (KeyValuePair<string, object> arg in args)
-                        cmd.Parameters.AddWithValue(arg.Key, arg.Value);
+                {
+                    IDictionaryEnumerator reader = args.GetEnumerator();
+                    while(reader.MoveNext())
+                        cmd.Parameters.AddWithValue(reader.Key.ToString(), reader.Value);
+                }
 
                 return Convert.ToInt32(cmd.ExecuteScalar());
             }
             catch (Exception E)
             {
-                Logging.Log(E.Message);
+                Logging.Log(E);
             }
             finally
             {
@@ -115,7 +119,7 @@ namespace KFServerPerks
             }
             catch (Exception E)
             {
-                Console.WriteLine(E);
+                Logging.Log(E);
             }
             finally
             {

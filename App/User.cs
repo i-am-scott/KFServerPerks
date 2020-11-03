@@ -11,37 +11,64 @@ namespace KFServerPerks
         public enum ID_TYPE
         {
             STEAMID_32,
-            STEAMID_64
+            STEAMID_64,
+            INTERNAL
         }
 
         private readonly Mysql db;
         private bool disposedValue = false;
 
-        public string Id { get => Steamid64; set { } }
+        public string InternalId;
         public readonly string Steamid64;
         public readonly string Steamid32;
 
         public string KfStringFormat { get; protected set; }
         public OrderedDictionary PerkData { get; protected set; }
 
-        public User(string steamid, ID_TYPE type)
+        public User(string id, ID_TYPE type)
         {
             if (type == ID_TYPE.STEAMID_32)
             {
-                Steamid64 = SteamID32To64(steamid);
-                Steamid32 = steamid;
+                Steamid64 = SteamID32To64(id);
+                Steamid32 = id;
+            }
+            else if(type == ID_TYPE.STEAMID_64)
+            {
+                Steamid64 = id;
+                Steamid32 = SteamID64To32(id);
+            }
+
+            if(type == ID_TYPE.INTERNAL)
+            {
+                InternalId = id;
+                Steamid32 = InternalIDToSteamID32(id);
+                Steamid64 = SteamID32To64(Steamid32);
             }
             else
             {
-                Steamid64 = steamid;
-                Steamid32 = SteamID64To32(steamid);
+                InternalId = SteamID32ToInternalID(Steamid32);
             }
-
-            string[] id32split = Steamid32.Split(new char[] { ':' });
-            Id = int.Parse(id32split[1]) + 1 + id32split[2];
 
             db = new Mysql(Program.settings.MySQLHost, Program.settings.MySQLUsername, Program.settings.MySQLPasswword, Program.settings.MySQLDatabase);
             db.Connect();
+        }
+
+        private string SteamID32ToInternalID(string id)
+        {
+            id = Steamid32.Replace("STEAM_0", "").Replace(":", "");
+
+            int realmId = Convert.ToInt32(id.Substring(0,1));
+            id = ++realmId + id.Remove(0, 1);
+
+            return id;
+        }
+
+        private string InternalIDToSteamID32(string id)
+        {
+            int realmId = Convert.ToInt32(id.Substring(0, 1));
+            string playerid = id.Substring(1);
+
+            return $"STEAM_0:{--realmId}:{playerid}";
         }
 
         private string SteamID64To32(string steamid64)
@@ -129,13 +156,15 @@ namespace KFServerPerks
             string values = string.Join(", ", keys.Select(key => ("@" + key)));
             string query = $@"REPLACE INTO perks({ fields }) VALUES({values});";
 
+            Console.WriteLine(query);
+
             try
             {
                 db.Query(query, PerkData);
             }
             catch (Exception E)
             {
-                Logging.Log(E.Message);
+                Logging.Log(E);
             }
         }
 

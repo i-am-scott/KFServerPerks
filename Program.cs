@@ -18,7 +18,7 @@ namespace KFServerPerks
         private static EndPoint clientEndPoint = null;
         private static List<string> connections = new List<string>();
 
-        static bool IsRegistered(IPEndPoint endpoint)
+        private static bool IsRegistered(IPEndPoint endpoint)
         {
             if (settings.AllowAll) return true;
 
@@ -32,7 +32,7 @@ namespace KFServerPerks
             return whitelisted;
         }
 
-        static void StartListener()
+        private static void StartListener()
         {
             serverEndPoint = new IPEndPoint(IPAddress.Any, settings.ServerPort);
             serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
@@ -47,7 +47,7 @@ namespace KFServerPerks
             }
         }
 
-        static void OnMessageReceived(byte[] res, int length)
+        private static void OnMessageReceived(byte[] res, int length)
         {
             ENetID cmd = (ENetID)res[0];
             string encoded = Encoding.ASCII.GetString(res, 1, length - 1);
@@ -89,13 +89,19 @@ namespace KFServerPerks
             }
         }
 
-        static void SendMessage(EndPoint endpoint, ENetID type, string message = "")
+        private static void SendMessage(EndPoint endpoint, ENetID type, string message = "")
         {
             SendMessage(endpoint as IPEndPoint, type, message);
+
+            if(type == ENetID.ID_ConnectionClosed)
+                CloseConnection(endpoint as IPEndPoint);
         }
 
-        static void SendMessage(IPEndPoint endpoint, ENetID type, string message = "")
+        private static void SendMessage(IPEndPoint endpoint, ENetID type, string message = "")
         {
+            if (IPAddress.IsLoopback(endpoint.Address) || endpoint.Address.Address == 0)
+                return;
+
             byte[] msgarr = Encoding.ASCII.GetBytes(message);
             List<byte> dataList = new List<byte>(msgarr.Length + 1);
 
@@ -121,12 +127,10 @@ namespace KFServerPerks
             {
                 SendMessage(endpoint, ENetID.ID_PasswordCorrect);
                 connections.Add(endpoint.Address + ":" + endpoint.Port);
-                return;
             }
             else
             {
                 SendMessage(endpoint, ENetID.ID_ConnectionClosed);
-                return;
             }
         }
 
@@ -143,23 +147,21 @@ namespace KFServerPerks
             string steamid64 = tbl[0];
             string name = tbl[1];
 
+            // During the end phase and map transition/vote phases the server will spam NONE. It will finally send the real steamid and name once in the ready up/selection phase.
             if (steamid64.ToLower() == "none")
-            {
-                Logging.Log("[RECEIVED] Player Id received as None! No idea what this means. It should be the player's steamid64. IGNORING.");
                 return;
-            }
 
             using (User pl = new User(steamid64, User.ID_TYPE.STEAMID_64))
             {
                 if (pl.LoadFromDatabase())
                 {
-                    SendMessage(endpoint, ENetID.ID_NewPlayer, $"{pl.Id}|{steamid64}");
-                    SendMessage(endpoint, ENetID.ID_SendPlayerData, $"{pl.Id}|{pl.KfStringFormat}" + Environment.NewLine);
+                    SendMessage(endpoint, ENetID.ID_NewPlayer, $"{pl.InternalId}|{steamid64}");
+                    SendMessage(endpoint, ENetID.ID_SendPlayerData, $"{pl.InternalId}|{pl.KfStringFormat}" + Environment.NewLine);
                 }
                 else
                 {
-                    SendMessage(endpoint, ENetID.ID_NewPlayer, $"{pl.Id}|{steamid64}");
-                    SendMessage(endpoint, ENetID.ID_SendPlayerData, $"{pl.Id}|{steamid64}|{(char)10}"); // Why does he want this. :(
+                    SendMessage(endpoint, ENetID.ID_NewPlayer, $"{pl.InternalId}|{steamid64}");
+                    SendMessage(endpoint, ENetID.ID_SendPlayerData, $"{pl.InternalId}|{steamid64}|{(char)10}"); // Why does he want this. :(
                 }
 
                 Logging.Log($"Player received: {name} ({pl.Steamid32})");
@@ -172,22 +174,33 @@ namespace KFServerPerks
         {
             string[] dataArr = data.Split(new char[] { '|' });
             if (dataArr[0].ToLower() == "none")
-            {
-                Logging.Log("[RECEIVED] Player Id received as None!");
                 return;
-            }
 
-            string playerId = "STEAM_0:" + (int.Parse(dataArr[0][0].ToString()) - 1) + ":" + dataArr[0].Substring(1);
             string[] stats = dataArr[1].Split(new char[] { ',' });
-
-            using (User pl = new User(playerId, User.ID_TYPE.STEAMID_32))
+            using (User pl = new User(dataArr[0], User.ID_TYPE.INTERNAL))
             {
                 pl.SetStats(stats);
                 pl.SaveToDatabase();
 
-                Logging.Log($"Received UpdatePlayer for {playerId}");
+                Logging.Log($"Received UpdatePlayer for {pl.Steamid32}");
             };
         }
+
+        [ENetCommandType("ConnectionClosed", ENetID.ID_ConnectionClosed)]
+        public static void ConnectionClosed(IPEndPoint endpoint, string data)
+        {
+            Logging.Log("[RECEIVED] Connection closing.");
+            CloseConnection(endpoint);
+        }
+
+        private static void CloseConnection(IPEndPoint endpoint)
+        {
+            string addressStr = endpoint.GetAddressString();
+            if (connections.Remove(addressStr))
+                Logging.Log($"[CONNECITON] No longer accepting connections from {addressStr}");
+        }
+
+        public static System.Timers.Timer timer;
 
         static void Main(string[] args)
         {
@@ -199,6 +212,13 @@ namespace KFServerPerks
             thr.IsBackground = true;
             thr.Start();
 
+            Logging.Log("Creating Heartbeat checker");
+
+            timer = new System.Timers.Timer(30000);
+            timer.Elapsed += Timer_Elapsed;
+            timer.AutoReset = true;
+            timer.Enabled = true;
+
             while (thr.ThreadState != ThreadState.Stopped)
                 if (Console.ReadLine() == "exit")
                     break;
@@ -208,5 +228,12 @@ namespace KFServerPerks
             serverSocket?.Close();
         }
 
+        private static void Timer_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
+        {
+            foreach(string address in connections)
+            {
+                // IPEndPoint ep = ep.Parse(address);
+            }
+        }
     }
 }
