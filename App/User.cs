@@ -4,7 +4,7 @@ using System;
 using System.Collections.Specialized;
 using System.Data;
 using System.Linq;
-using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 
 namespace KFServerPerks
 {
@@ -17,7 +17,6 @@ namespace KFServerPerks
             INTERNAL
         }
 
-        private readonly Mysql db;
         public string InternalId;
         public readonly string Steamid64;
         public readonly string Steamid32;
@@ -51,8 +50,6 @@ namespace KFServerPerks
             {
                 InternalId = SteamID32ToInternalID(Steamid32);
             }
-
-            db = new Mysql(Program.settings.MySQLHost, Program.settings.MySQLUsername, Program.settings.MySQLPasswword, Program.settings.MySQLDatabase);
         }
 
         private string SteamID32ToInternalID(string id)
@@ -99,31 +96,31 @@ namespace KFServerPerks
             PerkData = new OrderedDictionary()
             {
                 { "p_veterancy",                       veterancy },
-                { "p_perkIndex",                       perk  },
-                { "p_damageHealed",                    int.Parse(stats[0])  },
-                { "p_weldingPoints",                   int.Parse(stats[1])  },
-                { "p_shotgunDamage",                   int.Parse(stats[2])  },
-                { "p_headshotKills",                   int.Parse(stats[3])  },
-                { "p_stalkerKills",                    int.Parse(stats[4])  },
-                { "p_bullpupDamage",                   int.Parse(stats[5])  },
-                { "p_meleeDamage",                     int.Parse(stats[6])  },
-                { "p_flamethrowerDamage",              int.Parse(stats[7])  },
-                { "p_selfHeals",                       int.Parse(stats[8])  },
-                { "p_soleSurvivorWaves",               int.Parse(stats[9]) },
-                { "p_cashDonated",                     int.Parse(stats[10]) },
-                { "p_feedingKills",                    int.Parse(stats[11]) },
-                { "p_burningCrossbowKills",            int.Parse(stats[12]) },
-                { "p_gibbedFleshpounds",               int.Parse(stats[13]) },
-                { "p_stalkersKilledWithExplosives",    int.Parse(stats[14]) },
-                { "p_gibbedEnemies",                   int.Parse(stats[15]) },
-                { "p_bloatKills",                      int.Parse(stats[16]) },
-                { "p_sirenKills",                      int.Parse(stats[17]) },
-                { "p_kills",                           int.Parse(stats[18]) },
-                { "p_explosivesDamage",                int.Parse(stats[19]) },
-                { "p_totalZedTime",                    int.Parse(stats[20]) },
-                { "p_totalPlayTime",                   int.Parse(stats[21]) },
-                { "p_wins",                            int.Parse(stats[22]) },
-                { "p_lostCount",                       int.Parse(stats[23]) },
+                { "p_perkIndex",                       perk },
+                { "p_damageHealed",                    Math.Max(0, int.Parse(stats[0]))  },
+                { "p_weldingPoints",                   Math.Max(0, int.Parse(stats[1]))  },
+                { "p_shotgunDamage",                   Math.Max(0, int.Parse(stats[2]))  },
+                { "p_headshotKills",                   Math.Max(0, int.Parse(stats[3]))  },
+                { "p_stalkerKills",                    Math.Max(0, int.Parse(stats[4]))  },
+                { "p_bullpupDamage",                   Math.Max(0, int.Parse(stats[5]))  },
+                { "p_meleeDamage",                     Math.Max(0, int.Parse(stats[6]))  },
+                { "p_flamethrowerDamage",              Math.Max(0, int.Parse(stats[7]))  },
+                { "p_selfHeals",                       Math.Max(0, int.Parse(stats[8]))  },
+                { "p_soleSurvivorWaves",               Math.Max(0, int.Parse(stats[9]))  },
+                { "p_cashDonated",                     Math.Max(0, int.Parse(stats[10])) },
+                { "p_feedingKills",                    Math.Max(0, int.Parse(stats[11])) },
+                { "p_burningCrossbowKills",            Math.Max(0, int.Parse(stats[12])) },
+                { "p_gibbedFleshpounds",               Math.Max(0, int.Parse(stats[13])) },
+                { "p_stalkersKilledWithExplosives",    Math.Max(0, int.Parse(stats[14])) },
+                { "p_gibbedEnemies",                   Math.Max(0, int.Parse(stats[15])) },
+                { "p_bloatKills",                      Math.Max(0, int.Parse(stats[16])) },
+                { "p_sirenKills",                      Math.Max(0, int.Parse(stats[17])) },
+                { "p_kills",                           Math.Max(0, int.Parse(stats[18])) },
+                { "p_explosivesDamage",                Math.Max(0, int.Parse(stats[19])) },
+                { "p_totalZedTime",                    Math.Max(0, int.Parse(stats[20])) },
+                { "p_totalPlayTime",                   Math.Max(0, int.Parse(stats[21])) },
+                { "p_wins",                            Math.Max(0, int.Parse(stats[22])) },
+                { "p_lostCount",                       Math.Max(0, int.Parse(stats[23])) },
                 { "p_character",                       stats[24]},
                 { "p_customPerks",                     string.Join( "," , stats.TakeWhile( ( stat, index ) => index > 24 ).ToArray()) },
                 { "steamid32",                         Steamid32 },
@@ -138,10 +135,8 @@ namespace KFServerPerks
             PopulateStats(stats[0], stats.Skip(1).ToArray());
         }
 
-        public void SaveToDatabase()
+        public string GetQueryString()
         {
-            Logging.Log($"[PLAYER] Saving user {Steamid32} ({Steamid64}) to the database.");
-
             string[] keys = new string[PerkData.Keys.Count];
             PerkData.Keys.CopyTo(keys, 0);
 
@@ -149,9 +144,36 @@ namespace KFServerPerks
             string values = string.Join(", ", keys.Select(key => ("@" + key)));
             string query = $@"REPLACE INTO perks({ fields }) VALUES({values});";
 
+            return query;
+        }
+
+        public void SaveToDatabase(bool writeLog = true)
+        {
+            if (writeLog)
+                Logging.Log($"[PLAYER] Saving user {Steamid32} ({Steamid64}) to the database.");
+
+            string query = GetQueryString();
+
             try
             {
-                db.Query(query, PerkData);
+                Program.Database.Query(query, PerkData);
+            }
+            catch (Exception E)
+            {
+                Logging.Log(E);
+            }
+        }
+
+        public async Task SaveToDatabaseAsync(bool writeLog = true)
+        {
+            if (writeLog)
+                Logging.Log($"[PLAYER] Saving user {Steamid32} ({Steamid64}) to the database.");
+
+            string query = GetQueryString();
+
+            try
+            {
+                await Program.Database.QueryAsync(query, PerkData);
             }
             catch (Exception E)
             {
@@ -165,7 +187,7 @@ namespace KFServerPerks
 
             try
             {
-                DataTable data = db.Query($"SELECT * FROM {Program.settings.MySQLPerksTable} WHERE steamid64 = ? LIMIT 1", Steamid64);
+                DataTable data = Program.Database.Query($"SELECT * FROM {Program.settings.MySQLPerksTable} WHERE steamid64 = ? LIMIT 1", Steamid64);
                 if (data == null || data.Rows.Count == 0) return false;
 
                 object[] row = data.Rows[0].ItemArray;

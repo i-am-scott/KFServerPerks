@@ -1,25 +1,30 @@
-﻿using KFServerPerks.util;
-using Microsoft.VisualBasic.CompilerServices;
+﻿using IniParser;
+using IniParser.Model;
+using KFServerPerks.util;
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace KFServerPerks
 {
     public class Program
     {
+        public static Mysql Database;
+
         public static Settings settings = Settings.Load();
         private static EndPoint serverEndPoint;
         private static Socket serverSocket = null;
         private static EndPoint clientEndPoint = null;
         private static List<string> connections = new List<string>();
-
         public static Dictionary<ENetID, MethodInfo> messageReceivers;
+
         private static void RegisterMessageReceivers()
         {
             messageReceivers = new Dictionary<ENetID, MethodInfo>();
@@ -27,7 +32,7 @@ namespace KFServerPerks
                          .Where(m => m.GetCustomAttributes(typeof(ENetCommandType), false).Length > 0)
                          .ToArray();
 
-            foreach(MethodInfo method in methods)
+            foreach (MethodInfo method in methods)
             {
                 ENetCommandType attr = method.GetCustomAttribute<ENetCommandType>();
                 messageReceivers.Add(attr.cmdInt, method);
@@ -41,7 +46,7 @@ namespace KFServerPerks
             bool whitelisted = connections.Exists(element => element == endpoint.GetAddressString());
             if (!whitelisted)
                 SendMessage(endpoint, ENetID.ID_ConnectionClosed);
-  
+
             return whitelisted;
         }
 
@@ -199,8 +204,78 @@ namespace KFServerPerks
                 Logging.Log($"[CONNECITON] No longer accepting connections from {addressStr}");
         }
 
+        static void ConvertIniToMySQLDatabase(string fileName)
+        {
+            Logging.Log($"Converting Ini file {fileName} to database.");
+
+            FileIniDataParser parser = new FileIniDataParser();
+            IniData data = parser.ReadFile(fileName);
+
+            int playerCount = data.Sections.Count;
+            int playersNoData = 0;
+            int playersParsed = 0;
+
+            List<string> queries = new List<string>();
+            List<OrderedDictionary> argArray = new List<OrderedDictionary>();
+
+
+            Parallel.ForEach(data.Sections, new ParallelOptions
+            {
+                MaxDegreeOfParallelism = 3
+            }, async (SectionData section) =>
+            {
+                if (section.Keys.Count == 0)
+                {
+                    ++playersNoData;
+                    return;
+                }
+
+                KeyData plData = section.Keys.First();
+                string steamid64 = section.SectionName;
+                if (plData == null || plData.KeyName.ToLower() == "none" || section.Keys.Count == 0 || string.IsNullOrEmpty(steamid64) || steamid64.ToLower() == "none")
+                {
+                    ++playersNoData;
+                    return;
+                }
+
+                string[] dataList = plData.Value.Split(',');
+                if (dataList.Length < 25)
+                {
+                    ++playersNoData;
+                    return;
+                }
+
+                User pl = new User(section.SectionName, User.ID_TYPE.STEAMID_64);
+                pl.SetStats(plData.Value.Split(','));
+
+                queries.Add(pl.GetQueryString());
+                argArray.Add(pl.PerkData);
+
+                ++playersParsed;
+                await pl.SaveToDatabaseAsync(false);
+
+                Console.Title = $"Sent {playersParsed}/{playerCount}";
+            });
+
+            Logging.Log($"Completed. Players Listed: {playerCount}, Invalid or empty data: {playersNoData}");
+        }
+
         static void Main(string[] args)
         {
+            Database = new Mysql(settings.MySQLHost, settings.MySQLUsername, settings.MySQLPasswword, settings.MySQLDatabase);
+
+            if (args.Length > 0 && !string.IsNullOrEmpty(args[0]))
+            {
+                ConvertIniToMySQLDatabase(args[0]);
+
+                Console.Write("\nDo you want to start up the perk server? [Y/N]: ");
+                string r = Console.ReadLine();
+                if (r.ToLower() != "y")
+                    return;
+
+                Console.Clear();
+            }
+
             RegisterMessageReceivers();
 
             Console.Title = "KillingFloor Perk Server 0.1";
