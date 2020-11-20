@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "KFServerPerks": {
+      "commandName": "Project",
+      "commandLineArgs": "data.ini"
+    }
+  }
+}

@@ -204,6 +204,7 @@ namespace KFServerPerks
                 Logging.Log($"[CONNECITON] No longer accepting connections from {addressStr}");
         }
 
+        // Lazy. Slow. Bad.
         static void ConvertIniToMySQLDatabase(string fileName)
         {
             Logging.Log($"Converting Ini file {fileName} to database.");
@@ -217,7 +218,6 @@ namespace KFServerPerks
 
             List<string> queries = new List<string>();
             List<OrderedDictionary> argArray = new List<OrderedDictionary>();
-
 
             Parallel.ForEach(data.Sections, new ParallelOptions
             {
