@@ -108,7 +108,7 @@ namespace KFServerPerks
 
         private static void SendMessage(IPEndPoint endpoint, ENetID type, string message = "")
         {
-            if (IPAddress.IsLoopback(endpoint.Address) || endpoint.Address.Address == 0)
+            if (endpoint.Address.Equals(0))
                 return;
 
             byte[] msgarr = Encoding.ASCII.GetBytes(message);
