@@ -9,17 +9,17 @@ Create a config.json (or let it create an empty one for you) with these settings
 ##### config.json
 ```json
 {
-    "ServerPort": 6000,
-    "ServerPassword": "mutatorPassword",
-    "MySQLHost": "127.0.0.1",
-    "MySQLUsername": "databaseUsername",
-    "MySQLPasswword": "databasePassword",
-    "MySQLDatabase": "killingfloor",
-    "MySQLPerksTable": "perks",
+    	"ServerPort": 6000,
+    	"ServerPassword": "mutatorPassword",
+    	"MySQLHost": "127.0.0.1",
+    	"MySQLUsername": "databaseUsername",
+    	"MySQLPasswword": "databasePassword",
+    	"MySQLDatabase": "killingfloor",
+	"MySQLPerksTable": "perks",
 	"MySQLPort": 3306,
 	"AllowAll": false,
-    "Whitelist": [
-        "127.0.0.1"
-    ]
+    	"Whitelist": [
+        	"127.0.0.1"
+    	]
 }
 ```
